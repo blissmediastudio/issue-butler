@@ -1,3 +1,4 @@
+import { DEFAULT_STATUS_LABELS, type StatusLabelConfig } from "@issue-butler/core";
 import type { Database } from "./index.js";
 
 export interface GuildConfig {
@@ -6,6 +7,10 @@ export interface GuildConfig {
   moderatorRoleId: string | null;
   approvalEmoji: string;
   maxElaborationRounds: number;
+  githubInstallationId: string | null;
+  githubOwner: string | null;
+  githubRepo: string | null;
+  statusLabels: StatusLabelConfig;
 }
 
 interface GuildConfigRow {
@@ -14,6 +19,22 @@ interface GuildConfigRow {
   moderator_role_id: string | null;
   approval_emoji: string;
   max_elaboration_rounds: number;
+  github_installation_id: string | null;
+  github_owner: string | null;
+  github_repo: string | null;
+  backlog_labels: string;
+  in_progress_labels: string;
+}
+
+function splitLabels(csv: string): string[] {
+  return csv
+    .split(",")
+    .map((label) => label.trim())
+    .filter(Boolean);
+}
+
+function joinLabels(labels: string[]): string {
+  return labels.map((label) => label.trim()).filter(Boolean).join(",");
 }
 
 function toGuildConfig(row: GuildConfigRow): GuildConfig {
@@ -23,11 +44,25 @@ function toGuildConfig(row: GuildConfigRow): GuildConfig {
     moderatorRoleId: row.moderator_role_id,
     approvalEmoji: row.approval_emoji,
     maxElaborationRounds: row.max_elaboration_rounds,
+    githubInstallationId: row.github_installation_id,
+    githubOwner: row.github_owner,
+    githubRepo: row.github_repo,
+    statusLabels: {
+      backlogLabels: splitLabels(row.backlog_labels),
+      inProgressLabels: splitLabels(row.in_progress_labels),
+    },
   };
 }
 
 export function getGuildConfig(db: Database, guildId: string): GuildConfig | null {
   const row = db.prepare("SELECT * FROM guild_config WHERE guild_id = ?").get(guildId) as
+    | GuildConfigRow
+    | undefined;
+  return row ? toGuildConfig(row) : null;
+}
+
+export function getGuildConfigByInstallationId(db: Database, installationId: string): GuildConfig | null {
+  const row = db.prepare("SELECT * FROM guild_config WHERE github_installation_id = ?").get(installationId) as
     | GuildConfigRow
     | undefined;
   return row ? toGuildConfig(row) : null;
@@ -40,13 +75,25 @@ export function listGuildConfigs(db: Database): GuildConfig[] {
 
 /** Ensures a config row exists for the guild, without overwriting existing values. */
 export function ensureGuildConfig(db: Database, guildId: string): GuildConfig {
-  db.prepare("INSERT OR IGNORE INTO guild_config (guild_id) VALUES (?)").run(guildId);
+  db.prepare(
+    "INSERT OR IGNORE INTO guild_config (guild_id, backlog_labels, in_progress_labels) VALUES (?, ?, ?)",
+  ).run(guildId, joinLabels(DEFAULT_STATUS_LABELS.backlogLabels), joinLabels(DEFAULT_STATUS_LABELS.inProgressLabels));
   const config = getGuildConfig(db, guildId);
   if (!config) throw new Error(`Failed to create guild config for ${guildId}`);
   return config;
 }
 
-export type GuildConfigUpdate = Partial<Omit<GuildConfig, "guildId">>;
+export interface GuildConfigUpdate {
+  feedbackChannelId?: string | null;
+  moderatorRoleId?: string | null;
+  approvalEmoji?: string;
+  maxElaborationRounds?: number;
+  githubInstallationId?: string | null;
+  githubOwner?: string | null;
+  githubRepo?: string | null;
+  backlogLabels?: string[];
+  inProgressLabels?: string[];
+}
 
 export function updateGuildConfig(db: Database, guildId: string, update: GuildConfigUpdate): GuildConfig {
   ensureGuildConfig(db, guildId);
@@ -69,6 +116,26 @@ export function updateGuildConfig(db: Database, guildId: string, update: GuildCo
   if (update.maxElaborationRounds !== undefined) {
     fields.push("max_elaboration_rounds = ?");
     values.push(update.maxElaborationRounds);
+  }
+  if (update.githubInstallationId !== undefined) {
+    fields.push("github_installation_id = ?");
+    values.push(update.githubInstallationId);
+  }
+  if (update.githubOwner !== undefined) {
+    fields.push("github_owner = ?");
+    values.push(update.githubOwner);
+  }
+  if (update.githubRepo !== undefined) {
+    fields.push("github_repo = ?");
+    values.push(update.githubRepo);
+  }
+  if (update.backlogLabels !== undefined) {
+    fields.push("backlog_labels = ?");
+    values.push(joinLabels(update.backlogLabels));
+  }
+  if (update.inProgressLabels !== undefined) {
+    fields.push("in_progress_labels = ?");
+    values.push(joinLabels(update.inProgressLabels));
   }
 
   if (fields.length > 0) {

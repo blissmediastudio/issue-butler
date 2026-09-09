@@ -15,6 +15,7 @@ export interface Report {
   status: ReportStatus;
   elaborationRound: number;
   githubIssueUrl: string | null;
+  githubIssueNumber: number | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -32,6 +33,7 @@ interface ReportRow {
   status: ReportStatus;
   elaboration_round: number;
   github_issue_url: string | null;
+  github_issue_number: number | null;
   created_at: string;
   updated_at: string;
 }
@@ -50,6 +52,7 @@ function toReport(row: ReportRow): Report {
     status: row.status,
     elaborationRound: row.elaboration_round,
     githubIssueUrl: row.github_issue_url,
+    githubIssueNumber: row.github_issue_number,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -163,11 +166,19 @@ export function incrementElaborationRound(db: Database, reportId: number): Repor
   return getReportById(db, reportId)!;
 }
 
-export function setGithubIssueUrl(db: Database, reportId: number, url: string): Report {
+export function setGithubIssue(db: Database, reportId: number, url: string, issueNumber: number): Report {
   db.prepare(
-    "UPDATE reports SET github_issue_url = ?, status = 'approved', updated_at = datetime('now') WHERE id = ?",
-  ).run(url, reportId);
+    `UPDATE reports SET github_issue_url = ?, github_issue_number = ?, status = 'approved', updated_at = datetime('now')
+     WHERE id = ?`,
+  ).run(url, issueNumber, reportId);
   return getReportById(db, reportId)!;
+}
+
+export function getReportByIssueNumber(db: Database, guildId: string, issueNumber: number): Report | null {
+  const row = db
+    .prepare("SELECT * FROM reports WHERE guild_id = ? AND github_issue_number = ?")
+    .get(guildId, issueNumber) as ReportRow | undefined;
+  return row ? toReport(row) : null;
 }
 
 export function addConversationMessage(

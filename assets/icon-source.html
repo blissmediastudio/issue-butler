@@ -1,0 +1,35 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8" />
+<style>
+  html, body { margin: 0; padding: 0; width: 1024px; height: 1024px; }
+</style>
+</head>
+<body>
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
+  <rect width="1024" height="1024" fill="#FFFFFF"/>
+
+  <!-- right lapel: collar -> shoulder -> staircase notch (step in, step down) -> wide body -> tip -> back up -->
+  <polygon points="545,60 900,55 760,210 700,210 700,260 720,560 512,945 590,560"
+           fill="#171a2b"/>
+  <!-- left lapel: mirror of the right -->
+  <g transform="translate(1024,0) scale(-1,1)">
+    <polygon points="545,60 900,55 760,210 700,210 700,260 720,560 512,945 590,560"
+             fill="#171a2b"/>
+  </g>
+
+  <!-- bow tie: rounded lobes rather than sharp triangles, sitting at the collar -->
+  <g>
+    <path d="M 500,100 Q 400,68 358,106 Q 400,152 500,138 Z" fill="#ff7835"/>
+    <path d="M 524,100 Q 624,68 666,106 Q 624,152 524,138 Z" fill="#ff7835"/>
+    <rect x="497" y="103" width="30" height="38" rx="7" fill="#ff7835"/>
+  </g>
+
+  <!-- buttons -->
+  <circle cx="512" cy="420" r="28" fill="#171a2b"/>
+  <circle cx="512" cy="545" r="28" fill="#171a2b"/>
+  <circle cx="512" cy="670" r="28" fill="#171a2b"/>
+</svg>
+</body>
+</html>

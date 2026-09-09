@@ -7,7 +7,8 @@ import { wireReadyHandlers } from "./discord/listeners/ready.js";
 import { createMessageCreateHandler } from "./discord/listeners/messageCreate.js";
 import { createInteractionCreateHandler } from "./discord/listeners/interactionCreate.js";
 import { createTriageProvider } from "./ai/index.js";
-import { createGithubClient, type GithubClient } from "./github/client.js";
+import { createGithubApp } from "./github/app.js";
+import { registerWebhookHandlers } from "./github/registerWebhookHandlers.js";
 import { createServer } from "./server/index.js";
 
 async function main(): Promise<void> {
@@ -20,26 +21,26 @@ async function main(): Promise<void> {
   const triageProvider = createTriageProvider(config);
   logger.info("Triage provider selected", { provider: triageProvider.name });
 
-  let githubClient: GithubClient | null = null;
-  if (config.githubPipelineEnabled) {
-    githubClient = createGithubClient({
-      token: config.GITHUB_TOKEN!,
-      owner: config.GITHUB_OWNER!,
-      repo: config.GITHUB_REPO!,
-    });
-    logger.info("GitHub issue pipeline enabled", { owner: config.GITHUB_OWNER, repo: config.GITHUB_REPO });
+  const client = createDiscordClient();
+
+  const githubApp = createGithubApp(config);
+  if (githubApp) {
+    registerWebhookHandlers(githubApp, db, client, logger);
+    logger.info("GitHub App integration enabled", { appId: config.GITHUB_APP_ID });
   } else {
-    logger.warn("GitHub issue pipeline disabled — set GITHUB_TOKEN, GITHUB_OWNER, GITHUB_REPO to enable");
+    logger.warn(
+      "GitHub App integration disabled — set GITHUB_APP_ID, GITHUB_APP_SLUG, GITHUB_APP_PRIVATE_KEY, " +
+        "GITHUB_WEBHOOK_SECRET, SESSION_SECRET, PUBLIC_BASE_URL to enable",
+    );
   }
 
-  const client = createDiscordClient();
   wireReadyHandlers(client, db, config.DISCORD_BOT_TOKEN, config.DISCORD_CLIENT_ID, logger);
   client.on("messageCreate", createMessageCreateHandler({ db, triageProvider, logger }));
-  client.on("interactionCreate", createInteractionCreateHandler({ db, githubClient, logger }));
+  client.on("interactionCreate", createInteractionCreateHandler({ db, config, githubApp, logger }));
 
   await client.login(config.DISCORD_BOT_TOKEN);
 
-  const app = createServer({ db, adminToken: config.ADMIN_TOKEN ?? null });
+  const app = createServer({ db, adminToken: config.ADMIN_TOKEN ?? null, config, githubApp, logger });
   const server = app.listen(config.PORT, () => {
     logger.info("Admin API listening", { port: config.PORT, adminApiEnabled: config.adminApiEnabled });
   });

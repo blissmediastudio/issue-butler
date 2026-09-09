@@ -2,8 +2,10 @@ import { PermissionFlagsBits, type ButtonInteraction, type Interaction } from "d
 import { buildIssueDraft } from "@issue-butler/core";
 import type { Database } from "../../db/index.js";
 import { getGuildConfig } from "../../db/guildConfig.js";
-import { getReportById, getTranscript, setGithubIssueUrl, setReportStatus } from "../../db/reports.js";
-import type { GithubClient } from "../../github/client.js";
+import { getReportById, getTranscript, setGithubIssue, setReportStatus } from "../../db/reports.js";
+import { createIssue } from "../../github/issues.js";
+import type { IssueButlerGithubApp } from "../../github/app.js";
+import type { Config } from "../../config.js";
 import type { Logger } from "../../logger.js";
 import { buildApprovalRow, buildReportEmbed } from "../embeds.js";
 import { handleSetupCommand } from "../commands/setup.js";
@@ -11,21 +13,22 @@ import { handleStatusCommand } from "../commands/status.js";
 
 export interface InteractionCreateDeps {
   db: Database;
-  githubClient: GithubClient | null;
+  config: Config;
+  githubApp: IssueButlerGithubApp | null;
   logger: Logger;
 }
 
-export function createInteractionCreateHandler({ db, githubClient, logger }: InteractionCreateDeps) {
+export function createInteractionCreateHandler({ db, config, githubApp, logger }: InteractionCreateDeps) {
   return async function handleInteractionCreate(interaction: Interaction): Promise<void> {
     try {
       if (interaction.isChatInputCommand()) {
-        if (interaction.commandName === "setup") return handleSetupCommand(interaction, db);
+        if (interaction.commandName === "setup") return handleSetupCommand(interaction, { db, config, githubApp });
         if (interaction.commandName === "status") return handleStatusCommand(interaction, db);
         return;
       }
 
       if (interaction.isButton() && interaction.customId.startsWith("report_")) {
-        await handleReportButton(interaction, { db, githubClient, logger });
+        await handleReportButton(interaction, { db, config, githubApp, logger });
       }
     } catch (error) {
       logger.error("Unhandled interaction error", { error: String(error) });
@@ -45,7 +48,7 @@ function isModerator(interaction: ButtonInteraction, moderatorRoleId: string | n
 
 async function handleReportButton(
   interaction: ButtonInteraction,
-  { db, githubClient, logger }: InteractionCreateDeps,
+  { db, githubApp, logger }: InteractionCreateDeps,
 ): Promise<void> {
   const [, action, idStr] = interaction.customId.split("_");
   const reportId = Number(idStr);
@@ -73,9 +76,9 @@ async function handleReportButton(
       await interaction.reply({ content: `Already created: ${report.githubIssueUrl}`, ephemeral: true });
       return;
     }
-    if (!githubClient) {
+    if (!githubApp || !guildConfig?.githubInstallationId || !guildConfig.githubOwner || !guildConfig.githubRepo) {
       await interaction.reply({
-        content: "GitHub integration isn't configured on this deployment (GITHUB_TOKEN / GITHUB_OWNER / GITHUB_REPO).",
+        content: "GitHub isn't connected for this server. An admin can run `/setup connect-github`.",
         ephemeral: true,
       });
       return;
@@ -93,8 +96,9 @@ async function handleReportButton(
     });
 
     try {
-      const issue = await githubClient.createIssue(draft);
-      const updated = setGithubIssueUrl(db, report.id, issue.url);
+      const octokit = await githubApp.getInstallationOctokit(Number(guildConfig.githubInstallationId));
+      const issue = await createIssue(octokit, guildConfig.githubOwner, guildConfig.githubRepo, draft);
+      const updated = setGithubIssue(db, report.id, issue.url, issue.number);
       await interaction.editReply({ embeds: [buildReportEmbed(updated, jumpUrl)], components: [buildApprovalRow(updated.id, true)] });
     } catch (error) {
       logger.error("Failed to create GitHub issue", { reportId: report.id, error: String(error) });

@@ -4,15 +4,19 @@ import type { Express } from "express";
 import { openDatabase, type Database } from "../src/db/index.js";
 import { createReport } from "../src/db/reports.js";
 import { createServer } from "../src/server/index.js";
+import { loadConfig, type Config } from "../src/config.js";
+import { createLogger } from "../src/logger.js";
 
 const ADMIN_TOKEN = "test-admin-token-1234567890";
+const logger = createLogger("error");
+const baseConfig: Config = loadConfig({ DISCORD_BOT_TOKEN: "t", DISCORD_CLIENT_ID: "c" });
 
 let db: Database;
 let app: Express;
 
 beforeEach(() => {
   db = openDatabase(":memory:");
-  app = createServer({ db, adminToken: ADMIN_TOKEN });
+  app = createServer({ db, adminToken: ADMIN_TOKEN, config: baseConfig, githubApp: null, logger });
 });
 
 afterEach(() => {
@@ -92,8 +96,17 @@ describe("reports routes", () => {
 
 describe("without an admin token configured", () => {
   it("does not mount the admin API at all", async () => {
-    const openApp = createServer({ db, adminToken: null });
+    const openApp = createServer({ db, adminToken: null, config: baseConfig, githubApp: null, logger });
     const res = await request(openApp).get("/api/guilds/guild-1/config");
     expect(res.status).toBe(404);
+  });
+});
+
+describe("without the github app configured", () => {
+  it("does not mount the connect or webhook routes", async () => {
+    const res1 = await request(app).get("/connect/github/start?guildId=guild-1");
+    const res2 = await request(app).post("/webhooks/github");
+    expect(res1.status).toBe(404);
+    expect(res2.status).toBe(404);
   });
 });

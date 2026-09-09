@@ -1,17 +1,23 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { openDatabase, type Database } from "../src/db/index.js";
-import { ensureGuildConfig, getGuildConfig, updateGuildConfig } from "../src/db/guildConfig.js";
+import {
+  ensureGuildConfig,
+  getGuildConfig,
+  getGuildConfigByInstallationId,
+  updateGuildConfig,
+} from "../src/db/guildConfig.js";
 import {
   addConversationMessage,
   attachThread,
   countReportsByCategory,
   createReport,
+  getReportByIssueNumber,
   getReportByMessageId,
   getReportByThreadId,
   getTranscript,
   incrementElaborationRound,
   listReports,
-  setGithubIssueUrl,
+  setGithubIssue,
   setReportStatus,
 } from "../src/db/reports.js";
 
@@ -38,7 +44,34 @@ describe("guild config", () => {
       moderatorRoleId: null,
       approvalEmoji: "👍",
       maxElaborationRounds: 2,
+      githubInstallationId: null,
+      githubOwner: null,
+      githubRepo: null,
+      statusLabels: {
+        backlogLabels: ["backlog", "planned", "future-enhancement"],
+        inProgressLabels: ["in-progress", "in progress", "wip"],
+      },
     });
+  });
+
+  it("stores github App installation details and custom status labels", () => {
+    const config = updateGuildConfig(db, "guild-1", {
+      githubInstallationId: "12345",
+      githubOwner: "acme",
+      githubRepo: "widgets",
+      backlogLabels: ["someday"],
+      inProgressLabels: ["doing"],
+    });
+    expect(config.githubInstallationId).toBe("12345");
+    expect(config.githubOwner).toBe("acme");
+    expect(config.githubRepo).toBe("widgets");
+    expect(config.statusLabels).toEqual({ backlogLabels: ["someday"], inProgressLabels: ["doing"] });
+  });
+
+  it("looks a guild config up by its github installation id", () => {
+    updateGuildConfig(db, "guild-1", { githubInstallationId: "999" });
+    expect(getGuildConfigByInstallationId(db, "999")?.guildId).toBe("guild-1");
+    expect(getGuildConfigByInstallationId(db, "does-not-exist")).toBeNull();
   });
 
   it("is idempotent", () => {
@@ -144,7 +177,7 @@ describe("reports", () => {
     expect(getReportByMessageId(db, "msg-3")?.elaborationRound).toBe(1);
   });
 
-  it("sets a github issue url and marks the report approved", () => {
+  it("sets a github issue url/number and marks the report approved", () => {
     const report = createReport(db, {
       guildId: "guild-1",
       channelId: "chan-1",
@@ -156,9 +189,28 @@ describe("reports", () => {
       status: "ready",
     });
 
-    const updated = setGithubIssueUrl(db, report.id, "https://github.com/acme/repo/issues/42");
+    const updated = setGithubIssue(db, report.id, "https://github.com/acme/repo/issues/42", 42);
     expect(updated.githubIssueUrl).toBe("https://github.com/acme/repo/issues/42");
+    expect(updated.githubIssueNumber).toBe(42);
     expect(updated.status).toBe("approved");
+  });
+
+  it("looks a report back up by its github issue number, scoped to the guild", () => {
+    const report = createReport(db, {
+      guildId: "guild-1",
+      channelId: "chan-1",
+      messageId: "msg-5",
+      authorId: "user-1",
+      authorTag: "user#0001",
+      rawContent: "hmm",
+      category: "bug",
+      status: "ready",
+    });
+    setGithubIssue(db, report.id, "https://github.com/acme/repo/issues/99", 99);
+
+    expect(getReportByIssueNumber(db, "guild-1", 99)?.id).toBe(report.id);
+    expect(getReportByIssueNumber(db, "guild-2", 99)).toBeNull();
+    expect(getReportByIssueNumber(db, "guild-1", 100)).toBeNull();
   });
 
   it("filters reports by status and category", () => {

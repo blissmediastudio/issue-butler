@@ -6,6 +6,8 @@ import {
 } from "discord.js";
 import type { Database } from "../../db/index.js";
 import { getGuildConfig, updateGuildConfig } from "../../db/guildConfig.js";
+import type { Config } from "../../config.js";
+import { listAccessibleRepos, type IssueButlerGithubApp } from "../../github/app.js";
 
 export const setupCommand = new SlashCommandBuilder()
   .setName("setup")
@@ -37,9 +39,27 @@ export const setupCommand = new SlashCommandBuilder()
         opt.setName("count").setDescription("Max rounds (0-10)").setMinValue(0).setMaxValue(10).setRequired(true),
       ),
   )
+  .addSubcommand((sub) => sub.setName("connect-github").setDescription("Get a link to grant Issue Butler access to a GitHub repo"))
+  .addSubcommand((sub) =>
+    sub
+      .setName("repo")
+      .setDescription("Pick which accessible repo to file issues in (if more than one)")
+      .addStringOption((opt) =>
+        opt.setName("full_name").setDescription("owner/repo, must already be accessible to the GitHub App install").setRequired(true),
+      ),
+  )
   .addSubcommand((sub) => sub.setName("show").setDescription("Show the current configuration"));
 
-export async function handleSetupCommand(interaction: ChatInputCommandInteraction, db: Database): Promise<void> {
+export interface SetupCommandDeps {
+  db: Database;
+  config: Config;
+  githubApp: IssueButlerGithubApp | null;
+}
+
+export async function handleSetupCommand(
+  interaction: ChatInputCommandInteraction,
+  { db, config, githubApp }: SetupCommandDeps,
+): Promise<void> {
   if (!interaction.inGuild()) {
     await interaction.reply({ content: "This command only works in a server.", ephemeral: true });
     return;
@@ -50,9 +70,9 @@ export async function handleSetupCommand(interaction: ChatInputCommandInteractio
 
   if (subcommand === "channel") {
     const channel = interaction.options.getChannel("channel", true);
-    const config = updateGuildConfig(db, guildId, { feedbackChannelId: channel.id });
+    const updated = updateGuildConfig(db, guildId, { feedbackChannelId: channel.id });
     await interaction.reply({
-      content: `Monitoring <#${config.feedbackChannelId}> for reports.`,
+      content: `Monitoring <#${updated.feedbackChannelId}> for reports.`,
       ephemeral: true,
     });
     return;
@@ -60,9 +80,9 @@ export async function handleSetupCommand(interaction: ChatInputCommandInteractio
 
   if (subcommand === "moderator-role") {
     const role = interaction.options.getRole("role", true);
-    const config = updateGuildConfig(db, guildId, { moderatorRoleId: role.id });
+    const updated = updateGuildConfig(db, guildId, { moderatorRoleId: role.id });
     await interaction.reply({
-      content: `<@&${config.moderatorRoleId}> can now approve reports.`,
+      content: `<@&${updated.moderatorRoleId}> can now approve reports.`,
       ephemeral: true,
     });
     return;
@@ -70,24 +90,69 @@ export async function handleSetupCommand(interaction: ChatInputCommandInteractio
 
   if (subcommand === "rounds") {
     const count = interaction.options.getInteger("count", true);
-    const config = updateGuildConfig(db, guildId, { maxElaborationRounds: count });
+    const updated = updateGuildConfig(db, guildId, { maxElaborationRounds: count });
     await interaction.reply({
-      content: `Reports get up to ${config.maxElaborationRounds} clarifying question round(s).`,
+      content: `Reports get up to ${updated.maxElaborationRounds} clarifying question round(s).`,
       ephemeral: true,
     });
     return;
   }
 
+  if (subcommand === "connect-github") {
+    if (!config.githubAppEnabled) {
+      await interaction.reply({
+        content: "GitHub integration isn't configured on this deployment.",
+        ephemeral: true,
+      });
+      return;
+    }
+    const url = `${config.PUBLIC_BASE_URL}/connect/github/start?guildId=${guildId}`;
+    await interaction.reply({
+      content: `Click to grant Issue Butler access to a repo: ${url}\nOnly server admins should use this link.`,
+      ephemeral: true,
+    });
+    return;
+  }
+
+  if (subcommand === "repo") {
+    const fullName = interaction.options.getString("full_name", true);
+    const current = getGuildConfig(db, guildId);
+    if (!githubApp || !current?.githubInstallationId) {
+      await interaction.reply({
+        content: "Run `/setup connect-github` first to grant repo access.",
+        ephemeral: true,
+      });
+      return;
+    }
+
+    await interaction.deferReply({ ephemeral: true });
+    const accessible = await listAccessibleRepos(githubApp, Number(current.githubInstallationId));
+    const match = accessible.find((r) => `${r.owner}/${r.repo}`.toLowerCase() === fullName.toLowerCase());
+
+    if (!match) {
+      const list = accessible.map((r) => `${r.owner}/${r.repo}`).join(", ") || "none";
+      await interaction.editReply(`"${fullName}" isn't accessible to this install. Accessible repos: ${list}`);
+      return;
+    }
+
+    updateGuildConfig(db, guildId, { githubOwner: match.owner, githubRepo: match.repo });
+    await interaction.editReply(`Now filing issues in ${match.owner}/${match.repo}.`);
+    return;
+  }
+
   if (subcommand === "show") {
-    const config = getGuildConfig(db, guildId);
-    if (!config) {
+    const current = getGuildConfig(db, guildId);
+    if (!current) {
       await interaction.reply({ content: "Not configured yet. Start with `/setup channel`.", ephemeral: true });
       return;
     }
+    const githubStatus =
+      current.githubOwner && current.githubRepo ? `${current.githubOwner}/${current.githubRepo}` : "not connected";
     const lines = [
-      `**Feedback channel:** ${config.feedbackChannelId ? `<#${config.feedbackChannelId}>` : "not set"}`,
-      `**Moderator role:** ${config.moderatorRoleId ? `<@&${config.moderatorRoleId}>` : "not set"}`,
-      `**Max elaboration rounds:** ${config.maxElaborationRounds}`,
+      `**Feedback channel:** ${current.feedbackChannelId ? `<#${current.feedbackChannelId}>` : "not set"}`,
+      `**Moderator role:** ${current.moderatorRoleId ? `<@&${current.moderatorRoleId}>` : "not set"}`,
+      `**Max elaboration rounds:** ${current.maxElaborationRounds}`,
+      `**GitHub repo:** ${githubStatus}`,
     ];
     await interaction.reply({ content: lines.join("\n"), ephemeral: true });
   }

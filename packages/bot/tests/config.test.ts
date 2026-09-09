@@ -19,15 +19,29 @@ describe("loadConfig", () => {
     expect(config.DATABASE_PATH).toBe("./data/issue-butler.sqlite");
   });
 
-  it("disables the github pipeline unless all three variables are present", () => {
-    expect(loadConfig(BASE_ENV).githubPipelineEnabled).toBe(false);
-    expect(
-      loadConfig({ ...BASE_ENV, GITHUB_TOKEN: "t", GITHUB_OWNER: "acme" }).githubPipelineEnabled,
-    ).toBe(false);
-    expect(
-      loadConfig({ ...BASE_ENV, GITHUB_TOKEN: "t", GITHUB_OWNER: "acme", GITHUB_REPO: "repo" })
-        .githubPipelineEnabled,
-    ).toBe(true);
+  const GITHUB_APP_ENV = {
+    GITHUB_APP_ID: "123",
+    GITHUB_APP_SLUG: "issue-butler",
+    GITHUB_APP_PRIVATE_KEY: "-----BEGIN KEY-----abc-----END KEY-----",
+    GITHUB_WEBHOOK_SECRET: "whsecret",
+    SESSION_SECRET: "a".repeat(20),
+    PUBLIC_BASE_URL: "https://bot.example.com",
+  };
+
+  it("disables the github app integration unless every required variable is present", () => {
+    expect(loadConfig(BASE_ENV).githubAppEnabled).toBe(false);
+    const { PUBLIC_BASE_URL: _unused, ...missingOne } = GITHUB_APP_ENV;
+    expect(loadConfig({ ...BASE_ENV, ...missingOne }).githubAppEnabled).toBe(false);
+    expect(loadConfig({ ...BASE_ENV, ...GITHUB_APP_ENV }).githubAppEnabled).toBe(true);
+  });
+
+  it("unescapes a literal \\n private key into real newlines", () => {
+    const config = loadConfig({
+      ...BASE_ENV,
+      ...GITHUB_APP_ENV,
+      GITHUB_APP_PRIVATE_KEY: "-----BEGIN KEY-----\\nabc\\n-----END KEY-----",
+    });
+    expect(config.GITHUB_APP_PRIVATE_KEY).toBe("-----BEGIN KEY-----\nabc\n-----END KEY-----");
   });
 
   it("enables AI only when an Anthropic key is present", () => {
