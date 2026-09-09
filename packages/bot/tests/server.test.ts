@@ -65,6 +65,35 @@ describe("config routes", () => {
     const res = await auth(request(app).put("/api/guilds/guild-1/config")).send({ maxElaborationRounds: 99 });
     expect(res.status).toBe(400);
   });
+
+  it("updates status labels and approval emoji", async () => {
+    const put = await auth(request(app).put("/api/guilds/guild-1/config")).send({
+      backlogLabels: ["someday"],
+      inProgressLabels: ["doing"],
+      approvalEmoji: "✅",
+    });
+    expect(put.status).toBe(200);
+    expect(put.body.statusLabels).toEqual({ backlogLabels: ["someday"], inProgressLabels: ["doing"] });
+    expect(put.body.approvalEmoji).toBe("✅");
+  });
+
+  it("rejects a label update that conflicts with the other list", async () => {
+    await auth(request(app).put("/api/guilds/guild-1/config")).send({
+      backlogLabels: ["backlog"],
+      inProgressLabels: ["wip"],
+    });
+
+    const res = await auth(request(app).put("/api/guilds/guild-1/config")).send({ backlogLabels: ["wip"] });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toContain("wip");
+  });
+
+  it("checks a new backlog list against the existing in-progress list, not just the payload", async () => {
+    await auth(request(app).put("/api/guilds/guild-1/config")).send({ inProgressLabels: ["active"] });
+
+    const res = await auth(request(app).put("/api/guilds/guild-1/config")).send({ backlogLabels: ["Active"] });
+    expect(res.status).toBe(400);
+  });
 });
 
 describe("reports routes", () => {

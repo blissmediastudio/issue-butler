@@ -8,7 +8,7 @@ import type { Database } from "../../db/index.js";
 import { ensureGuildConfig, getGuildConfig, updateGuildConfig } from "../../db/guildConfig.js";
 import type { Config } from "../../config.js";
 import { listAccessibleRepos, type IssueButlerGithubApp } from "../../github/app.js";
-import { DEFAULT_STATUS_LABELS } from "@issue-butler/core";
+import { DEFAULT_STATUS_LABELS, findLabelConflicts, normalizeLabelList } from "@issue-butler/core";
 
 export const setupCommand = new SlashCommandBuilder()
   .setName("setup")
@@ -164,7 +164,27 @@ export async function handleSetupCommand(
       return;
     }
 
-    if (backlogInput?.trim().toLowerCase() === "default") {
+    const backlogIsDefault = backlogInput?.trim().toLowerCase() === "default";
+    const inProgressIsDefault = inProgressInput?.trim().toLowerCase() === "default";
+
+    if (backlogIsDefault || inProgressIsDefault) {
+      // "default" resets BOTH lists, so combining it with an explicit value for the other
+      // option is ambiguous — previously the explicit value was silently discarded instead
+      // of being rejected.
+      const otherWasExplicit = backlogIsDefault
+        ? Boolean(inProgressInput) && !inProgressIsDefault
+        : Boolean(backlogInput) && !backlogIsDefault;
+
+      if (otherWasExplicit) {
+        await interaction.reply({
+          content:
+            "`default` resets both lists and can't be combined with an explicit value for the other option. " +
+            "Run `/setup labels backlog:default` (or `in_progress:default`) alone, or supply real label lists for both.",
+          ephemeral: true,
+        });
+        return;
+      }
+
       const updated = updateGuildConfig(db, guildId, {
         backlogLabels: DEFAULT_STATUS_LABELS.backlogLabels,
         inProgressLabels: DEFAULT_STATUS_LABELS.inProgressLabels,
@@ -177,19 +197,10 @@ export async function handleSetupCommand(
     }
 
     const current = ensureGuildConfig(db, guildId);
-    const parseLabels = (input: string): string[] => {
-      return input
-        .split(",")
-        .map((label) => label.trim())
-        .filter((label) => label.length > 0);
-    };
+    const backlogLabels = backlogInput ? normalizeLabelList(backlogInput) : current.statusLabels.backlogLabels;
+    const inProgressLabels = inProgressInput ? normalizeLabelList(inProgressInput) : current.statusLabels.inProgressLabels;
 
-    const backlogLabels = backlogInput ? parseLabels(backlogInput) : current.statusLabels.backlogLabels;
-    const inProgressLabels = inProgressInput ? parseLabels(inProgressInput) : current.statusLabels.inProgressLabels;
-
-    const backlogLower = backlogLabels.map((label) => label.toLowerCase());
-    const inProgressLower = inProgressLabels.map((label) => label.toLowerCase());
-    const conflicts = backlogLower.filter((label) => inProgressLower.includes(label));
+    const conflicts = findLabelConflicts(backlogLabels, inProgressLabels);
 
     if (conflicts.length > 0) {
       const conflictList = conflicts.map((label) => `"${label}"`).join(", ");

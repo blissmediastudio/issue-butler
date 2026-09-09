@@ -65,7 +65,7 @@ export function Dashboard({ api, guildId }: { api: ApiClient; guildId: string })
 
       <div className="report-list">
         {reports.map((report) => (
-          <ReportCard key={report.id} report={report} />
+          <ReportCard key={report.id} report={report} api={api} />
         ))}
       </div>
     </div>

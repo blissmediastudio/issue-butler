@@ -1,4 +1,4 @@
-import type { Category, ConversationTurn, ReportStatus } from "@issue-butler/core";
+import type { Category, ConversationTurn, ReportStatus, StatusLabelConfig } from "@issue-butler/core";
 
 export interface Report {
   id: number;
@@ -23,6 +23,17 @@ export interface GuildConfig {
   moderatorRoleId: string | null;
   approvalEmoji: string;
   maxElaborationRounds: number;
+  statusLabels: StatusLabelConfig;
+}
+
+/** The shape the PUT /config route actually accepts — statusLabels is flattened server-side. */
+export interface GuildConfigUpdate {
+  feedbackChannelId?: string | null;
+  moderatorRoleId?: string | null;
+  approvalEmoji?: string;
+  maxElaborationRounds?: number;
+  backlogLabels?: string[];
+  inProgressLabels?: string[];
 }
 
 export class ApiError extends Error {
@@ -75,7 +86,7 @@ export function createApiClient(options: ApiClientOptions) {
       return request(`/api/guilds/${guildId}/config`, options);
     },
 
-    updateConfig(guildId: string, patch: Partial<Omit<GuildConfig, "guildId">>): Promise<GuildConfig> {
+    updateConfig(guildId: string, patch: GuildConfigUpdate): Promise<GuildConfig> {
       return request(`/api/guilds/${guildId}/config`, options, {
         method: "PUT",
         body: JSON.stringify(patch),

@@ -36,13 +36,21 @@ function createMockInteraction(
   } as unknown as ChatInputCommandInteraction;
 }
 
+// Matches the real Config shape (tests/ isn't included in the typechecked tsconfig, so a
+// drifted mock here wouldn't be caught until something actually touched a missing field).
 const mockConfig: Config = {
-  DATABASE_PATH: ":memory:",
-  ADMIN_TOKEN: "test-token",
-  DISCORD_TOKEN: "test-token",
+  DISCORD_BOT_TOKEN: "test-token",
+  DISCORD_CLIENT_ID: "test-client-id",
+  ANTHROPIC_MODEL: "claude-haiku-4-5",
+  ADMIN_TOKEN: "test-admin-token-1234567890",
   PORT: 3000,
+  DATABASE_PATH: ":memory:",
+  MAX_ELABORATION_ROUNDS: 2,
+  LOG_LEVEL: "info",
   PUBLIC_BASE_URL: "http://localhost:3000",
   githubAppEnabled: false,
+  aiEnabled: false,
+  adminApiEnabled: true,
 };
 
 describe("/setup labels", () => {
@@ -119,7 +127,7 @@ describe("/setup labels", () => {
     await handleSetupCommand(interaction, { db, config: mockConfig, githubApp: null });
 
     expect(interaction.reply).toHaveBeenCalledWith({
-      content: 'Cannot have the same label in both lists: "doing"',
+      content: 'Cannot have the same label in both lists: "Doing"',
       ephemeral: true,
     });
   });
@@ -154,6 +162,44 @@ describe("/setup labels", () => {
       content: "**Backlog labels:** todo\n**In-progress labels:** active",
       ephemeral: true,
     });
+  });
+
+  it("resets both lists to defaults when backlog is 'default' alone", async () => {
+    updateGuildConfig(db, "guild-1", { backlogLabels: ["custom-backlog"], inProgressLabels: ["custom-wip"] });
+    const interaction = createMockInteraction("guild-1", "labels", { backlog: "default" });
+
+    await handleSetupCommand(interaction, { db, config: mockConfig, githubApp: null });
+
+    const config = getGuildConfig(db, "guild-1");
+    expect(config?.statusLabels.backlogLabels).toEqual(["backlog", "planned", "future-enhancement"]);
+    expect(config?.statusLabels.inProgressLabels).toEqual(["in-progress", "in progress", "wip"]);
+  });
+
+  it("resets both lists to defaults when in_progress is 'default' alone", async () => {
+    updateGuildConfig(db, "guild-1", { backlogLabels: ["custom-backlog"], inProgressLabels: ["custom-wip"] });
+    const interaction = createMockInteraction("guild-1", "labels", { in_progress: "default" });
+
+    await handleSetupCommand(interaction, { db, config: mockConfig, githubApp: null });
+
+    const config = getGuildConfig(db, "guild-1");
+    expect(config?.statusLabels.backlogLabels).toEqual(["backlog", "planned", "future-enhancement"]);
+    expect(config?.statusLabels.inProgressLabels).toEqual(["in-progress", "in progress", "wip"]);
+  });
+
+  it("rejects 'default' combined with an explicit value for the other option instead of silently dropping it", async () => {
+    updateGuildConfig(db, "guild-1", { backlogLabels: ["custom-backlog"], inProgressLabels: ["custom-wip"] });
+    const interaction = createMockInteraction("guild-1", "labels", { backlog: "default", in_progress: "active" });
+
+    await handleSetupCommand(interaction, { db, config: mockConfig, githubApp: null });
+
+    expect(interaction.reply).toHaveBeenCalledWith({
+      content: expect.stringContaining("can't be combined with an explicit value"),
+      ephemeral: true,
+    });
+    // must not have changed anything
+    const config = getGuildConfig(db, "guild-1");
+    expect(config?.statusLabels.backlogLabels).toEqual(["custom-backlog"]);
+    expect(config?.statusLabels.inProgressLabels).toEqual(["custom-wip"]);
   });
 
   it("creates a guild config if it doesn't exist", async () => {

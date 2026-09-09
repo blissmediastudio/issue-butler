@@ -140,6 +140,49 @@ button[type="submit"] {
   color: #4b3fbf;
 }
 
+.transcript-toggle {
+  background: none;
+  border: none;
+  padding: 0;
+  color: #4b3fbf;
+  cursor: pointer;
+  font-size: 12px;
+  text-decoration: underline;
+}
+
+.transcript {
+  margin-top: 12px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: #f5f6fa;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.transcript-empty {
+  margin: 0;
+  font-size: 13px;
+  color: #666;
+}
+
+.transcript-turn {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 13px;
+}
+
+.transcript-role {
+  font-weight: 600;
+  font-size: 11px;
+  color: #888;
+}
+
+.transcript-turn-bot .transcript-role {
+  color: #4b3fbf;
+}
+
 .error {
   color: #e74c3c;
 }
