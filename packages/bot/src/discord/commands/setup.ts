@@ -72,14 +72,12 @@ export async function handleSetupCommand(
   interaction: ChatInputCommandInteraction,
   { db, config, githubApp }: SetupCommandDeps,
 ): Promise<void> {
-  console.log("[DEBUG] handleSetupCommand called");
   if (!interaction.inGuild()) {
     await interaction.reply({ content: "This command only works in a server.", ephemeral: true });
     return;
   }
 
   const subcommand = interaction.options.getSubcommand();
-  console.log("[DEBUG] subcommand:", subcommand);
   const guildId = interaction.guildId!;
 
   if (subcommand === "channel") {
@@ -155,82 +153,71 @@ export async function handleSetupCommand(
   }
 
   if (subcommand === "labels") {
-    try {
-      const backlogInput = interaction.options.getString("backlog");
-      const inProgressInput = interaction.options.getString("in_progress");
+    const backlogInput = interaction.options.getString("backlog");
+    const inProgressInput = interaction.options.getString("in_progress");
 
-      if (!backlogInput && !inProgressInput) {
-        await interaction.reply({
-          content: "At least one of `backlog` or `in_progress` must be supplied.",
-          ephemeral: true,
-        });
-        return;
-      }
-
-      if (backlogInput?.trim().toLowerCase() === "default") {
-        const updated = updateGuildConfig(db, guildId, {
-          backlogLabels: DEFAULT_STATUS_LABELS.backlogLabels,
-          inProgressLabels: DEFAULT_STATUS_LABELS.inProgressLabels,
-        });
-        await interaction.reply({
-          content: `Reset to defaults:\n**Backlog labels:** ${updated.statusLabels.backlogLabels.join(", ")}\n**In-progress labels:** ${updated.statusLabels.inProgressLabels.join(", ")}`,
-          ephemeral: true,
-        });
-        return;
-      }
-
-      const current = ensureGuildConfig(db, guildId);
-      const parseLabels = (input: string): string[] => {
-        return input
-          .split(",")
-          .map((label) => label.trim())
-          .filter((label) => label.length > 0);
-      };
-
-      const backlogLabels = backlogInput ? parseLabels(backlogInput) : current.statusLabels.backlogLabels;
-      const inProgressLabels = inProgressInput ? parseLabels(inProgressInput) : current.statusLabels.inProgressLabels;
-
-      const backlogLower = backlogLabels.map((label) => label.toLowerCase());
-      const inProgressLower = inProgressLabels.map((label) => label.toLowerCase());
-      const conflicts = backlogLower.filter((label) => inProgressLower.includes(label));
-
-      if (conflicts.length > 0) {
-        const conflictList = conflicts.map((label) => `"${label}"`).join(", ");
-        await interaction.reply({
-          content: `Cannot have the same label in both lists: ${conflictList}`,
-          ephemeral: true,
-        });
-        return;
-      }
-
-      const update: { backlogLabels?: string[]; inProgressLabels?: string[] } = {};
-      if (backlogInput) {
-        update.backlogLabels = backlogLabels;
-      }
-      if (inProgressInput) {
-        update.inProgressLabels = inProgressLabels;
-      }
-
-      const updated = updateGuildConfig(db, guildId, update);
+    if (!backlogInput && !inProgressInput) {
       await interaction.reply({
-        content: `**Backlog labels:** ${updated.statusLabels.backlogLabels.join(", ")}\n**In-progress labels:** ${updated.statusLabels.inProgressLabels.join(", ")}`,
-        ephemeral: true,
-      });
-      return;
-    } catch (error) {
-      console.error("[ERROR] labels subcommand error:", error);
-      await interaction.reply({
-        content: "An error occurred while updating labels. Check the bot logs.",
+        content: "At least one of `backlog` or `in_progress` must be supplied.",
         ephemeral: true,
       });
       return;
     }
+
+    if (backlogInput?.trim().toLowerCase() === "default") {
+      const updated = updateGuildConfig(db, guildId, {
+        backlogLabels: DEFAULT_STATUS_LABELS.backlogLabels,
+        inProgressLabels: DEFAULT_STATUS_LABELS.inProgressLabels,
+      });
+      await interaction.reply({
+        content: `Reset to defaults:\n**Backlog labels:** ${updated.statusLabels.backlogLabels.join(", ")}\n**In-progress labels:** ${updated.statusLabels.inProgressLabels.join(", ")}`,
+        ephemeral: true,
+      });
+      return;
+    }
+
+    const current = ensureGuildConfig(db, guildId);
+    const parseLabels = (input: string): string[] => {
+      return input
+        .split(",")
+        .map((label) => label.trim())
+        .filter((label) => label.length > 0);
+    };
+
+    const backlogLabels = backlogInput ? parseLabels(backlogInput) : current.statusLabels.backlogLabels;
+    const inProgressLabels = inProgressInput ? parseLabels(inProgressInput) : current.statusLabels.inProgressLabels;
+
+    const backlogLower = backlogLabels.map((label) => label.toLowerCase());
+    const inProgressLower = inProgressLabels.map((label) => label.toLowerCase());
+    const conflicts = backlogLower.filter((label) => inProgressLower.includes(label));
+
+    if (conflicts.length > 0) {
+      const conflictList = conflicts.map((label) => `"${label}"`).join(", ");
+      await interaction.reply({
+        content: `Cannot have the same label in both lists: ${conflictList}`,
+        ephemeral: true,
+      });
+      return;
+    }
+
+    const update: { backlogLabels?: string[]; inProgressLabels?: string[] } = {};
+    if (backlogInput) {
+      update.backlogLabels = backlogLabels;
+    }
+    if (inProgressInput) {
+      update.inProgressLabels = inProgressLabels;
+    }
+
+    const updated = updateGuildConfig(db, guildId, update);
+    await interaction.reply({
+      content: `**Backlog labels:** ${updated.statusLabels.backlogLabels.join(", ")}\n**In-progress labels:** ${updated.statusLabels.inProgressLabels.join(", ")}`,
+      ephemeral: true,
+    });
+    return;
   }
 
   if (subcommand === "show") {
-    console.log("[DEBUG] show subcommand handler");
     const current = getGuildConfig(db, guildId);
-    console.log("[DEBUG] current config:", current ? "found" : "null");
     if (!current) {
       await interaction.reply({ content: "Not configured yet. Start with `/setup channel`.", ephemeral: true });
       return;
@@ -245,9 +232,7 @@ export async function handleSetupCommand(
       `**Backlog labels:** ${current.statusLabels.backlogLabels.join(", ")}`,
       `**In-progress labels:** ${current.statusLabels.inProgressLabels.join(", ")}`,
     ];
-    console.log("[DEBUG] about to reply with:", lines.join("\n"));
     await interaction.reply({ content: lines.join("\n"), ephemeral: true });
-    console.log("[DEBUG] reply sent");
     return;
   }
 }
