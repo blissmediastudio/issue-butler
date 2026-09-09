@@ -10,3 +10,7 @@ build/
 coverage/
 *.log
 .DS_Store
+opencode.json
+problem.txt
+.opencode/skills/problem-checker/SKILL.md
+.opencode/skills/test-generation/SKILL.md

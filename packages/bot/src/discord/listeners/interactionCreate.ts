@@ -21,7 +21,9 @@ export interface InteractionCreateDeps {
 export function createInteractionCreateHandler({ db, config, githubApp, logger }: InteractionCreateDeps) {
   return async function handleInteractionCreate(interaction: Interaction): Promise<void> {
     try {
+      console.log("[DEBUG] Interaction received:", interaction.type);
       if (interaction.isChatInputCommand()) {
+        console.log("[DEBUG] Chat input command:", interaction.commandName);
         if (interaction.commandName === "setup") return handleSetupCommand(interaction, { db, config, githubApp });
         if (interaction.commandName === "status") return handleStatusCommand(interaction, db);
         return;

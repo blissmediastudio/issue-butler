@@ -5,9 +5,10 @@ import {
   type ChatInputCommandInteraction,
 } from "discord.js";
 import type { Database } from "../../db/index.js";
-import { getGuildConfig, updateGuildConfig } from "../../db/guildConfig.js";
+import { ensureGuildConfig, getGuildConfig, updateGuildConfig } from "../../db/guildConfig.js";
 import type { Config } from "../../config.js";
 import { listAccessibleRepos, type IssueButlerGithubApp } from "../../github/app.js";
+import { DEFAULT_STATUS_LABELS } from "@issue-butler/core";
 
 export const setupCommand = new SlashCommandBuilder()
   .setName("setup")
@@ -48,6 +49,17 @@ export const setupCommand = new SlashCommandBuilder()
         opt.setName("full_name").setDescription("owner/repo, must already be accessible to the GitHub App install").setRequired(true),
       ),
   )
+  .addSubcommand((sub) =>
+    sub
+      .setName("labels")
+      .setDescription("Configure backlog and in-progress label mappings")
+      .addStringOption((opt) =>
+        opt.setName("backlog").setDescription("Comma-separated backlog labels, or 'default' to reset both lists").setRequired(false),
+      )
+      .addStringOption((opt) =>
+        opt.setName("in_progress").setDescription("Comma-separated in-progress labels (e.g. in-progress, wip)").setRequired(false),
+      ),
+  )
   .addSubcommand((sub) => sub.setName("show").setDescription("Show the current configuration"));
 
 export interface SetupCommandDeps {
@@ -60,12 +72,14 @@ export async function handleSetupCommand(
   interaction: ChatInputCommandInteraction,
   { db, config, githubApp }: SetupCommandDeps,
 ): Promise<void> {
+  console.log("[DEBUG] handleSetupCommand called");
   if (!interaction.inGuild()) {
     await interaction.reply({ content: "This command only works in a server.", ephemeral: true });
     return;
   }
 
   const subcommand = interaction.options.getSubcommand();
+  console.log("[DEBUG] subcommand:", subcommand);
   const guildId = interaction.guildId!;
 
   if (subcommand === "channel") {
@@ -140,8 +154,83 @@ export async function handleSetupCommand(
     return;
   }
 
+  if (subcommand === "labels") {
+    try {
+      const backlogInput = interaction.options.getString("backlog");
+      const inProgressInput = interaction.options.getString("in_progress");
+
+      if (!backlogInput && !inProgressInput) {
+        await interaction.reply({
+          content: "At least one of `backlog` or `in_progress` must be supplied.",
+          ephemeral: true,
+        });
+        return;
+      }
+
+      if (backlogInput?.trim().toLowerCase() === "default") {
+        const updated = updateGuildConfig(db, guildId, {
+          backlogLabels: DEFAULT_STATUS_LABELS.backlogLabels,
+          inProgressLabels: DEFAULT_STATUS_LABELS.inProgressLabels,
+        });
+        await interaction.reply({
+          content: `Reset to defaults:\n**Backlog labels:** ${updated.statusLabels.backlogLabels.join(", ")}\n**In-progress labels:** ${updated.statusLabels.inProgressLabels.join(", ")}`,
+          ephemeral: true,
+        });
+        return;
+      }
+
+      const current = ensureGuildConfig(db, guildId);
+      const parseLabels = (input: string): string[] => {
+        return input
+          .split(",")
+          .map((label) => label.trim())
+          .filter((label) => label.length > 0);
+      };
+
+      const backlogLabels = backlogInput ? parseLabels(backlogInput) : current.statusLabels.backlogLabels;
+      const inProgressLabels = inProgressInput ? parseLabels(inProgressInput) : current.statusLabels.inProgressLabels;
+
+      const backlogLower = backlogLabels.map((label) => label.toLowerCase());
+      const inProgressLower = inProgressLabels.map((label) => label.toLowerCase());
+      const conflicts = backlogLower.filter((label) => inProgressLower.includes(label));
+
+      if (conflicts.length > 0) {
+        const conflictList = conflicts.map((label) => `"${label}"`).join(", ");
+        await interaction.reply({
+          content: `Cannot have the same label in both lists: ${conflictList}`,
+          ephemeral: true,
+        });
+        return;
+      }
+
+      const update: { backlogLabels?: string[]; inProgressLabels?: string[] } = {};
+      if (backlogInput) {
+        update.backlogLabels = backlogLabels;
+      }
+      if (inProgressInput) {
+        update.inProgressLabels = inProgressLabels;
+      }
+
+      const updated = updateGuildConfig(db, guildId, update);
+      await interaction.reply({
+        content: `**Backlog labels:** ${updated.statusLabels.backlogLabels.join(", ")}\n**In-progress labels:** ${updated.statusLabels.inProgressLabels.join(", ")}`,
+        ephemeral: true,
+      });
+      return;
+    } catch (error) {
+      console.error("[ERROR] labels subcommand error:", error);
+      await interaction.reply({
+        content: "An error occurred while updating labels. Check the bot logs.",
+        ephemeral: true,
+      });
+      return;
+    }
+  }
+
   if (subcommand === "show") {
+    console.log("[DEBUG] show subcommand handler");
     const current = getGuildConfig(db, guildId);
+    console.log("[DEBUG] current config:", current ? "found" : "null");
     if (!current) {
       await interaction.reply({ content: "Not configured yet. Start with `/setup channel`.", ephemeral: true });
       return;
@@ -153,7 +242,12 @@ export async function handleSetupCommand(
       `**Moderator role:** ${current.moderatorRoleId ? `<@&${current.moderatorRoleId}>` : "not set"}`,
       `**Max elaboration rounds:** ${current.maxElaborationRounds}`,
       `**GitHub repo:** ${githubStatus}`,
+      `**Backlog labels:** ${current.statusLabels.backlogLabels.join(", ")}`,
+      `**In-progress labels:** ${current.statusLabels.inProgressLabels.join(", ")}`,
     ];
+    console.log("[DEBUG] about to reply with:", lines.join("\n"));
     await interaction.reply({ content: lines.join("\n"), ephemeral: true });
+    console.log("[DEBUG] reply sent");
+    return;
   }
 }

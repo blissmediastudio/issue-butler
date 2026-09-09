@@ -14,9 +14,9 @@ const envSchema = z.object({
   SESSION_SECRET: z.string().min(16).optional(),
   PUBLIC_BASE_URL: z.string().url().optional(),
 
-  ANTHROPIC_API_KEY: z.string().min(1).optional(),
+  ANTHROPIC_API_KEY: z.string().min(1).optional().or(z.literal("")),
   ANTHROPIC_MODEL: z.string().default("claude-haiku-4-5"),
-  ADMIN_TOKEN: z.string().min(16, "ADMIN_TOKEN must be at least 16 characters").optional(),
+  ADMIN_TOKEN: z.string().min(16, "ADMIN_TOKEN must be at least 16 characters").optional().or(z.literal("")),
   PORT: z.coerce.number().int().positive().default(3001),
   DATABASE_PATH: z.string().default("./data/issue-butler.sqlite"),
   MAX_ELABORATION_ROUNDS: z.coerce.number().int().min(0).max(10).default(2),
